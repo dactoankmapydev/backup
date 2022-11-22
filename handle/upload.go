@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/google/uuid"
 	"github.com/restic/chunker"
 )
@@ -96,10 +97,22 @@ func (u *Upload) Upload(path string) error {
 				key := hex.EncodeToString(hashData[:])
 				chunkToUpload.Etag = key
 
-				fmt.Println("Put chunk ", key)
-				err = u.Storage.PutObject(bucket, key, data)
-				if err != nil {
-					return err
+				fmt.Println("Heat chunk ", key)
+				exist, err := u.Storage.HeadObject(bucket, key)
+				if aerr, ok := err.(awserr.Error); ok {
+					if aerr.Code() == "NotFound" {
+						err = nil
+					}
+				}
+
+				if !exist {
+					fmt.Printf("Chunk %s not exist, put chunk\n", key)
+					err = u.Storage.PutObject(bucket, key, data)
+					if err != nil {
+						return err
+					}
+				} else {
+					fmt.Printf("Chunk %s exist, not put chunk\n", key)
 				}
 			}
 			itemInfo.Sha256Hash = hash.Sum(nil)

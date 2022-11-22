@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -68,8 +69,11 @@ func (s *s3Implement) HeadObject(bucket, key string) (bool, error) {
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
-	if err != nil {
-		return false, err
+
+	if aerr, ok := err.(awserr.Error); ok {
+		if aerr.Code() == "NotFound" {
+			return false, err
+		}
 	}
 	return true, nil
 }
