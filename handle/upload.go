@@ -2,17 +2,26 @@ package handle
 
 import (
 	"backup-chunk/cache"
+	"backup-chunk/storage"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/restic/chunker"
 )
+
+const bucket = "backup-hn-1"
+
+type Upload struct {
+	Storage storage.S3
+}
 
 func walkerDir(dir string, index *cache.Index) error {
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
@@ -39,7 +48,7 @@ func walkerDir(dir string, index *cache.Index) error {
 	return nil
 }
 
-func Upload(path string) error {
+func (u *Upload) Upload(path string) error {
 	recoveryPointID := uuid.New()
 	cacheWriter, err := cache.NewRepository(".cache", recoveryPointID.String())
 	if err != nil {
@@ -86,6 +95,12 @@ func Upload(path string) error {
 				hashData := md5.Sum(data)
 				key := hex.EncodeToString(hashData[:])
 				chunkToUpload.Etag = key
+
+				fmt.Println("Put chunk ", key)
+				err = u.Storage.PutObject(bucket, key, data)
+				if err != nil {
+					return err
+				}
 			}
 			itemInfo.Sha256Hash = hash.Sum(nil)
 		}
@@ -93,6 +108,29 @@ func Upload(path string) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	fmt.Println("Put file index ", recoveryPointID.String())
+	err = u.PutIndex(recoveryPointID.String())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *Upload) PutIndex(recoveryPointID string) error {
+	indexPath := filepath.Join(".cache", recoveryPointID, "index.json")
+
+	buf, err := ioutil.ReadFile(indexPath)
+	if err != nil {
+		return err
+	}
+
+	err = u.Storage.PutObject(bucket, filepath.Join(recoveryPointID, "index.json"), buf)
+	if err != nil {
+		os.RemoveAll(filepath.Join(recoveryPointID))
+		return err
 	}
 
 	return nil

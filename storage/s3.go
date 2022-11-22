@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"io/ioutil"
 	"log"
 	"time"
@@ -12,13 +13,12 @@ import (
 )
 
 type S3Storage struct {
-	S3session  *s3.S3
-	AccessKey  string
-	SecretKey  string
-	Endpoint   string
-	Region     string
-	BucketName string
-	Location   string
+	S3session *s3.S3
+	AccessKey string
+	SecretKey string
+	// Endpoint  string
+	Region string
+	Bucket string
 }
 
 type s3Implement struct {
@@ -26,7 +26,8 @@ type s3Implement struct {
 }
 
 type S3 interface {
-	HeadObject(bucket, key string) (bool, int64, error)
+	PutObject(bucket, key string, data []byte) error
+	HeadObject(bucket, key string) (bool, error)
 	GetObject(bucket, key string) ([]byte, error)
 	GetObjectPresignUrl(bucket, key string) (string, error)
 }
@@ -39,8 +40,8 @@ func (storage *S3Storage) NewS3() {
 	}
 	storage.S3session = s3.New(session.Must(session.NewSession(&aws.Config{
 		Credentials: credentials,
-		Endpoint:    aws.String(storage.Endpoint),
-		Region:      aws.String(storage.Region),
+		// Endpoint:    aws.String(storage.Endpoint),
+		Region: aws.String(storage.Region),
 	})))
 }
 
@@ -50,15 +51,27 @@ func NewImplementS3(s3storage *S3Storage) S3 {
 	}
 }
 
-func (s *s3Implement) HeadObject(bucket, key string) (bool, int64, error) {
-	result, err := s.s3storage.S3session.HeadObject(&s3.HeadObjectInput{
+func (s *s3Implement) PutObject(bucket, key string, data []byte) error {
+	_, err := s.s3storage.S3session.PutObject(&s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader(data),
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *s3Implement) HeadObject(bucket, key string) (bool, error) {
+	_, err := s.s3storage.S3session.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return false, 0, err
+		return false, err
 	}
-	return true, aws.Int64Value(result.ContentLength), nil
+	return true, nil
 }
 
 func (s *s3Implement) GetObject(bucket, key string) ([]byte, error) {
