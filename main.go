@@ -27,8 +27,13 @@ func main() {
 	}
 	s3Session.NewS3()
 
-	upload := handle.Upload{
+	// backup := handle.Upload{
+	// 	Storage: storage.NewImplementS3(s3Session),
+	// }
+	// backup.Upload("/home/dactoan/Documents/under")
+
+	restore := handle.Download{
 		Storage: storage.NewImplementS3(s3Session),
 	}
-	upload.Upload("/home/dactoan/Documents/under/bla.txt")
+	restore.Download("e18e4b51-52e9-4184-bc68-f44a37bbdf74", "/home/dactoan/restore")
 }

@@ -1,6 +1,8 @@
 package cache
 
 import (
+	supportos "backup-chunk/supportos/unix"
+
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,8 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
-
-	"backup-chunk/supportos"
 )
 
 type Index struct {
@@ -37,15 +37,15 @@ type Node struct {
 	Type         string       `json:"type"`
 	Sha256Hash   Sha256Hash   `json:"sha256_hash,omitempty"`
 	Mode         os.FileMode  `json:"mode,omitempty"`
-	ModTime      time.Time    `json:"mtime,omitempty"`
-	AccessTime   time.Time    `json:"atime,omitempty"`
-	ChangeTime   time.Time    `json:"ctime,omitempty"`
+	ModTime      time.Time    `json:"modified_time,omitempty"`
+	AccessTime   time.Time    `json:"access_time,omitempty"`
+	ChangeTime   time.Time    `json:"changed_time,omitempty"`
 	UID          uint32       `json:"uid"`
 	GID          uint32       `json:"gid"`
 	User         string       `json:"user,omitempty"`
 	Group        string       `json:"group,omitempty"`
 	Size         uint64       `json:"size,omitempty"`
-	LinkTarget   string       `json:"linktarget,omitempty"`
+	LinkTarget   string       `json:"link_target,omitempty"`
 	Content      []*ChunkInfo `json:"content,omitempty"`
 	AbsolutePath string       `json:"path"`
 	BasePath     string       `json:"base_path"`

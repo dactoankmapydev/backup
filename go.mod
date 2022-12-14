@@ -11,4 +11,5 @@ require (
 require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/joho/godotenv v1.4.0
+	golang.org/x/sync v0.1.0
 )
