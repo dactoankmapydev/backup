@@ -4,10 +4,10 @@ import (
 	"backup-chunk/cache"
 	"backup-chunk/storage"
 	supportos "backup-chunk/supportos/unix"
+	"runtime"
 
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"io/ioutil"
@@ -66,17 +66,19 @@ func (d *Download) Download(recoveryPointID string, destDir string) error {
 }
 
 func (d *Download) restoreDirectory(index cache.Index, destDir string) error {
-	sem := semaphore.NewWeighted(int64(5))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	group, ctx := errgroup.WithContext(ctx)
+	maxWorkers := runtime.NumCPU()
+	sem := semaphore.NewWeighted(int64(maxWorkers))
+	group, ctx := errgroup.WithContext(context.Background())
 
 	for _, item := range index.Items {
 		item := item
 		err := sem.Acquire(ctx, 1)
 		if err != nil {
+			fmt.Printf("Acquire err = %+v\n", err)
 			continue
 		}
+
+		fmt.Printf("Checking item %s \n", item.AbsolutePath)
 		group.Go(func() error {
 			defer sem.Release(1)
 			err := d.downloadItem(ctx, *item, destDir)
@@ -90,46 +92,43 @@ func (d *Download) restoreDirectory(index cache.Index, destDir string) error {
 	}
 
 	if err := group.Wait(); err != nil {
-		fmt.Printf("Has goroutine error %+v ", err)
-		cancel()
+		fmt.Printf("Has goroutine error %+v\n", err)
 		return err
 	}
+
+	fmt.Println("Finish restore")
 
 	return nil
 }
 
 func (d *Download) downloadItem(ctx context.Context, item cache.Node, destDir string) error {
-	select {
-	case <-ctx.Done():
-		return errors.New("Download item done")
-	default:
-		var pathItem string
-		if destDir == item.BasePath {
-			pathItem = item.AbsolutePath
-		} else {
-			pathItem = filepath.Join(destDir, item.RelativePath)
+	var pathItem string
+	if destDir == item.BasePath {
+		pathItem = item.AbsolutePath
+	} else {
+		pathItem = filepath.Join(destDir, item.RelativePath)
+	}
+	switch item.Type {
+	case "symlink":
+		err := d.downloadSymlink(pathItem, item)
+		if err != nil {
+			fmt.Printf("Download symlink error %+v ", err)
+			return err
 		}
-		switch item.Type {
-		case "symlink":
-			err := d.downloadSymlink(pathItem, item)
-			if err != nil {
-				fmt.Printf("Download symlink error %+v ", err)
-				return err
-			}
-		case "dir":
-			err := d.downloadDirectory(pathItem, item)
-			if err != nil {
-				fmt.Printf("Download directory error %+v ", err)
-				return err
-			}
-		case "file":
-			err := d.downloadFile(pathItem, item)
-			if err != nil {
-				fmt.Printf("Download file error %+v ", err)
-				return err
-			}
+	case "dir":
+		err := d.downloadDirectory(pathItem, item)
+		if err != nil {
+			fmt.Printf("Download directory error %+v ", err)
+			return err
+		}
+	case "file":
+		err := d.downloadFile(pathItem, item)
+		if err != nil {
+			fmt.Printf("Download file error %+v ", err)
+			return err
 		}
 	}
+
 	return nil
 }
 
@@ -156,7 +155,7 @@ func (d *Download) downloadDirectory(pathItem string, item cache.Node) error {
 	_, err := os.Stat(pathItem)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Println("Directory not exist, create ", pathItem)
+			fmt.Println("Directory not exist => create ", pathItem)
 			err := d.createDirectory(pathItem, os.ModeDir|item.Mode, int(item.UID), int(item.GID), item.AccessTime, item.ModTime)
 			if err != nil {
 				return err
@@ -166,7 +165,7 @@ func (d *Download) downloadDirectory(pathItem string, item cache.Node) error {
 			return err
 		}
 	} else {
-		fmt.Println("Directory exist ", pathItem)
+		fmt.Printf("Directory exist %s => not download \n", pathItem)
 	}
 	return nil
 }
@@ -175,7 +174,7 @@ func (d *Download) downloadFile(pathItem string, item cache.Node) error {
 	_, err := os.Stat(pathItem)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Println("File not exist, create ", pathItem)
+			fmt.Println("File not exist => create ", pathItem)
 			file, err := d.createFile(pathItem, item.Mode, int(item.UID), int(item.GID))
 			if err != nil {
 				return err
@@ -190,7 +189,7 @@ func (d *Download) downloadFile(pathItem string, item cache.Node) error {
 			return err
 		}
 	} else {
-		fmt.Println("File exist ", pathItem)
+		fmt.Printf("File exist %s => not download \n", pathItem)
 	}
 
 	return nil
@@ -202,6 +201,7 @@ func (d *Download) writeFile(file *os.File, item cache.Node) error {
 		offset := info.Start
 		key := info.Etag
 
+		fmt.Printf("Download object %s of %s \n", key, item.AbsolutePath)
 		data, err := d.Storage.GetObject(bucket, key)
 		if err != nil {
 			return err
