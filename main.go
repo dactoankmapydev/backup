@@ -27,13 +27,13 @@ func main() {
 	}
 	s3Session.NewS3()
 
-	backup := handle.Upload{
-		Storage: storage.NewImplementS3(s3Session),
-	}
-	backup.Upload("/home/dactoan/Downloads/protoc3")
+	// backup := handle.Upload{
+	// 	Storage: storage.NewImplementS3(s3Session),
+	// }
+	// backup.Upload("/home/toannd2/Documents")
 
 	restore := handle.Download{
 		Storage: storage.NewImplementS3(s3Session),
 	}
-	restore.Download("f947dd5a-de84-4941-8435-8792bb2f7e20", "/home/dactoan/restore")
+	restore.Download("d87c33f1-e9c1-434f-b093-64ca865e43c9", "/home/toannd2/restore")
 }

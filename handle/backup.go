@@ -2,6 +2,7 @@ package handle
 
 import (
 	"backup-chunk/cache"
+	"backup-chunk/common"
 	"backup-chunk/storage"
 
 	"crypto/md5"
@@ -18,8 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/restic/chunker"
 )
-
-const bucket = "backup-hn-1"
 
 type Upload struct {
 	Storage storage.S3
@@ -99,7 +98,7 @@ func (u *Upload) Upload(path string) error {
 				chunkToUpload.Etag = key
 
 				fmt.Println("Heat chunk ", key)
-				exist, err := u.Storage.HeadObject(bucket, key)
+				exist, err := u.Storage.HeadObject(common.Bucket, key)
 				if aerr, ok := err.(awserr.Error); ok {
 					if aerr.Code() == "NotFound" {
 						err = nil
@@ -108,7 +107,7 @@ func (u *Upload) Upload(path string) error {
 
 				if !exist {
 					fmt.Printf("Chunk %s not exist, put chunk\n", key)
-					err = u.Storage.PutObject(bucket, key, data)
+					err = u.Storage.PutObject(common.Bucket, key, data)
 					if err != nil {
 						return err
 					}
@@ -141,7 +140,7 @@ func (u *Upload) PutIndex(recoveryPointID string) error {
 		return err
 	}
 
-	err = u.Storage.PutObject(bucket, filepath.Join(recoveryPointID, "index.json"), buf)
+	err = u.Storage.PutObject(common.Bucket, filepath.Join(recoveryPointID, "index.json"), buf)
 	if err != nil {
 		os.RemoveAll(filepath.Join(recoveryPointID))
 		return err

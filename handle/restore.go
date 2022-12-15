@@ -2,9 +2,11 @@ package handle
 
 import (
 	"backup-chunk/cache"
+	"backup-chunk/common"
 	"backup-chunk/storage"
 	supportos "backup-chunk/supportos/unix"
 	"runtime"
+	"strings"
 
 	"context"
 	"encoding/json"
@@ -30,7 +32,7 @@ func (d *Download) Download(recoveryPointID string, destDir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Printf("Get %s from storage \n", indexKey)
-			buf, err := d.Storage.GetObject(bucket, indexKey)
+			buf, err := d.Storage.GetObject(common.Bucket, indexKey)
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(".cache", recoveryPointID), 0700)
 				if err := ioutil.WriteFile(indexPath, buf, 0700); err != nil {
@@ -78,7 +80,7 @@ func (d *Download) restoreDirectory(index cache.Index, destDir string) error {
 			continue
 		}
 
-		fmt.Printf("Checking item %s \n", item.AbsolutePath)
+		// fmt.Printf("Checking item %s \n", item.AbsolutePath)
 		group.Go(func() error {
 			defer sem.Release(1)
 			err := d.downloadItem(ctx, *item, destDir)
@@ -133,7 +135,7 @@ func (d *Download) downloadItem(ctx context.Context, item cache.Node, destDir st
 }
 
 func (d *Download) downloadSymlink(pathItem string, item cache.Node) error {
-	_, err := os.Stat(pathItem)
+	fi, err := os.Stat(pathItem)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("Symlink not exist, create ", pathItem)
@@ -146,13 +148,24 @@ func (d *Download) downloadSymlink(pathItem string, item cache.Node) error {
 			return err
 		}
 	} else {
-		fmt.Println("Symlink exist ", pathItem)
+		fmt.Printf("Symlink exist %s => check symlink \n", pathItem)
+		_, ctimeLocal, _, _, _, _ := supportos.ItemLocal(fi)
+		if !strings.EqualFold(common.TimeToString(ctimeLocal), common.TimeToString(item.ChangeTime)) {
+			fmt.Printf("Symlink %s change ctime => update mode, uid, gid \n", item.Name)
+			err = os.Chmod(pathItem, item.Mode)
+			if err != nil {
+				return err
+			}
+			_ = supportos.SetChownItem(pathItem, int(item.UID), int(item.GID))
+		} else {
+			fmt.Printf("Symlink %s not change => not download \n", pathItem)
+		}
 	}
 	return nil
 }
 
 func (d *Download) downloadDirectory(pathItem string, item cache.Node) error {
-	_, err := os.Stat(pathItem)
+	fi, err := os.Stat(pathItem)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("Directory not exist => create ", pathItem)
@@ -165,13 +178,24 @@ func (d *Download) downloadDirectory(pathItem string, item cache.Node) error {
 			return err
 		}
 	} else {
-		fmt.Printf("Directory exist %s => not download \n", pathItem)
+		fmt.Printf("Directory exist %s => check directory \n", pathItem)
+		_, ctimeLocal, _, _, _, _ := supportos.ItemLocal(fi)
+		if !strings.EqualFold(common.TimeToString(ctimeLocal), common.TimeToString(item.ChangeTime)) {
+			fmt.Printf("Directory %s change ctime => update mode, uid, gid \n", item.Name)
+			err = os.Chmod(pathItem, os.ModeDir|item.Mode)
+			if err != nil {
+				return err
+			}
+			_ = supportos.SetChownItem(pathItem, int(item.UID), int(item.GID))
+		} else {
+			fmt.Printf("Directory %s not change => not download \n", pathItem)
+		}
 	}
 	return nil
 }
 
 func (d *Download) downloadFile(pathItem string, item cache.Node) error {
-	_, err := os.Stat(pathItem)
+	fi, err := os.Stat(pathItem)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("File not exist => create ", pathItem)
@@ -189,7 +213,40 @@ func (d *Download) downloadFile(pathItem string, item cache.Node) error {
 			return err
 		}
 	} else {
-		fmt.Printf("File exist %s => not download \n", pathItem)
+		fmt.Printf("File exist %s => check file \n", pathItem)
+		_, ctimeLocal, mtimeLocal, _, _, _ := supportos.ItemLocal(fi)
+		if !strings.EqualFold(common.TimeToString(ctimeLocal), common.TimeToString(item.ChangeTime)) {
+			if !strings.EqualFold(common.TimeToString(mtimeLocal), common.TimeToString(item.ModTime)) {
+				fmt.Printf("File change mtime, ctime => create %s \n", pathItem)
+				if err = os.Remove(pathItem); err != nil {
+					return err
+				}
+
+				file, err := d.createFile(pathItem, item.Mode, int(item.UID), int(item.GID))
+				if err != nil {
+					return err
+				}
+
+				err = d.writeFile(file, item)
+				if err != nil {
+					return err
+				}
+				return nil
+			} else {
+				fmt.Printf("File %s change ctime => update mode, uid, gid \n", pathItem)
+				err = os.Chmod(pathItem, item.Mode)
+				if err != nil {
+					return err
+				}
+				_ = supportos.SetChownItem(pathItem, int(item.UID), int(item.GID))
+				err = os.Chtimes(pathItem, item.AccessTime, item.ModTime)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			fmt.Printf("File %s not change => not download \n", pathItem)
+		}
 	}
 
 	return nil
@@ -202,7 +259,7 @@ func (d *Download) writeFile(file *os.File, item cache.Node) error {
 		key := info.Etag
 
 		fmt.Printf("Download object %s of %s \n", key, item.AbsolutePath)
-		data, err := d.Storage.GetObject(bucket, key)
+		data, err := d.Storage.GetObject(common.Bucket, key)
 		if err != nil {
 			return err
 		}
